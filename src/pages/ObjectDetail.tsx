@@ -163,7 +163,7 @@ export function ObjectDetail() {
           <ConfirmDialog
             opened={deleteOpen}
             title="Удалить объект"
-            message={`Удалить «${object.name}»? Задачи этого объекта тоже удалятся.`}
+            message={`Удалить «${object.name}»? Пока на объекте есть задачи, удалить его нельзя.`}
             confirmLabel="Удалить"
             onClose={() => setDeleteOpen(false)}
             onConfirm={async () => {

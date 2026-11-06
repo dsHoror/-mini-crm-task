@@ -3,7 +3,13 @@ import { type FormEvent, useEffect, useRef, useState } from 'react'
 import type { ProfileRow } from '../lib/database.types.ts'
 import { errorText } from '../lib/errors.ts'
 import { executorOptions } from '../lib/profiles.ts'
-import { blankToNull, hasErrors, validateTask, type FieldErrors } from '../lib/validation.ts'
+import {
+  blankToNull,
+  hasErrors,
+  TASK_TITLE_MAX,
+  validateTask,
+  type FieldErrors,
+} from '../lib/validation.ts'
 import type { TaskInput } from '../lib/api.ts'
 
 export function TaskFormModal({
@@ -88,6 +94,7 @@ export function TaskFormModal({
             error={errors.title}
             required
             autoFocus
+            maxLength={TASK_TITLE_MAX}
             disabled={pending}
           />
           <Textarea
