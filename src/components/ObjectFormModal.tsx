@@ -1,7 +1,7 @@
 import { Alert, Button, Group, Modal, Stack, TextInput } from '@mantine/core'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { errorText } from '../lib/errors.ts'
-import { hasErrors, validateObject, type FieldErrors } from '../lib/validation.ts'
+import { hasErrors, OBJECT_NAME_MAX, validateObject, type FieldErrors } from '../lib/validation.ts'
 
 type ObjectFormValues = {
   name: string
@@ -79,6 +79,7 @@ export function ObjectFormModal({
             error={errors.name}
             required
             autoFocus
+            maxLength={OBJECT_NAME_MAX}
             disabled={pending}
           />
           <TextInput

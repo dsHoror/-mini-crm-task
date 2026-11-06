@@ -198,7 +198,7 @@ export function TaskDetail() {
           <ConfirmDialog
             opened={deleteOpen}
             title="Удалить задачу"
-            message={`Удалить «${task.title}»? История статусов удалится вместе с ней.`}
+            message={`Удалить «${task.title}»? Если статус уже менялся, удалить задачу нельзя: история сохраняется.`}
             confirmLabel="Удалить"
             onClose={() => setDeleteOpen(false)}
             onConfirm={async () => {

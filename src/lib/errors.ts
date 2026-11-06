@@ -1,19 +1,19 @@
-function readError(error: unknown): { message: string; code: string } {
-  if (typeof error === 'string') return { message: error, code: '' }
-  if (error instanceof Error) return { message: error.message, code: '' }
+function readError(error: unknown): { message: string; code: string; details: string } {
+  if (typeof error === 'string') return { message: error, code: '', details: '' }
   if (error && typeof error === 'object') {
-    const record = error as { message?: unknown; code?: unknown }
+    const record = error as { message?: unknown; code?: unknown; details?: unknown }
     return {
       message: typeof record.message === 'string' ? record.message : '',
       code: typeof record.code === 'string' ? record.code : '',
+      details: typeof record.details === 'string' ? record.details : '',
     }
   }
-  return { message: '', code: '' }
+  return { message: '', code: '', details: '' }
 }
 
 export function errorText(error: unknown): string {
-  const { message, code } = readError(error)
-  const haystack = `${code} ${message}`.toLowerCase()
+  const { message, code, details } = readError(error)
+  const haystack = `${code} ${message} ${details}`.toLowerCase()
 
   if (haystack.includes('invalid login') || haystack.includes('invalid_credentials')) {
     return 'Неверная почта или пароль'
@@ -54,6 +54,18 @@ export function errorText(error: unknown): string {
   }
   if (haystack.includes('status can only be changed')) {
     return 'Не удалось сменить статус'
+  }
+  if (haystack.includes('task_status_history_task_id_fkey')) {
+    return 'Нельзя удалить задачу: у неё уже есть история статусов'
+  }
+  if (haystack.includes('tasks_object_id_fkey')) {
+    return 'Нельзя удалить объект: на нём есть задачи'
+  }
+  if (code === '23503') {
+    return 'Нельзя удалить: запись ещё используется'
+  }
+  if (haystack.includes('objects_name_length') || haystack.includes('tasks_title_length')) {
+    return 'Название должно быть от 1 до 200 символов'
   }
   if (code === '23514') {
     return 'Проверьте поля формы'

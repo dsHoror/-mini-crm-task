@@ -1,8 +1,9 @@
 export type FieldErrors<Key extends string> = Partial<Record<Key, string>>
 
-const NAME_MAX = 200
+export const OBJECT_NAME_MAX = 200
+export const TASK_TITLE_MAX = 200
+
 const ADDRESS_MAX = 300
-const TITLE_MAX = 200
 const TEXT_MAX = 4000
 
 function requiredText(value: string, emptyMessage: string, max: number): string | undefined {
@@ -27,7 +28,7 @@ export function validateLogin(email: string, password: string): FieldErrors<'ema
 
 export function validateObject(name: string, address: string): FieldErrors<'name' | 'address'> {
   const errors: FieldErrors<'name' | 'address'> = {}
-  const nameError = requiredText(name, 'Укажите название', NAME_MAX)
+  const nameError = requiredText(name, 'Укажите название', OBJECT_NAME_MAX)
   const addressError = requiredText(address, 'Укажите адрес', ADDRESS_MAX)
   if (nameError) errors.name = nameError
   if (addressError) errors.address = addressError
@@ -39,7 +40,7 @@ export function validateTask(
   description: string,
 ): FieldErrors<'title' | 'description'> {
   const errors: FieldErrors<'title' | 'description'> = {}
-  const titleError = requiredText(title, 'Укажите название задачи', TITLE_MAX)
+  const titleError = requiredText(title, 'Укажите название задачи', TASK_TITLE_MAX)
   if (titleError) errors.title = titleError
   if (description.trim().length > TEXT_MAX) errors.description = `Не длиннее ${TEXT_MAX} символов`
   return errors

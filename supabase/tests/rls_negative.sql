@@ -3,8 +3,11 @@
 -- These cases must fail:
 --   1. чужая задача — executor changes a task assigned to someone else
 --   2. запрещённый переход — a status move outside the role's graph,
---      including rework without a comment
+--      including rework without a comment, and a manager attempting
+--      new→in_progress, in_progress→review, or rework→in_progress
 --   3. правка истории — INSERT, UPDATE, or DELETE of task_status_history
+--   4. удаление задачи, у которой уже есть история, и объекта, на котором есть задачи
+--   5. objects.name или tasks.title длиннее 200 символов (char_length)
 --
 -- Run as the migration owner (postgres), after the migrations:
 --   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/rls_negative.sql
@@ -315,6 +318,23 @@ select public._crm_test_expect_fail(
   'forbidden transition'
 );
 
+-- MUST FAIL: new → in_progress is the assignee's transition, not the manager's.
+select public._crm_test_expect_fail(
+  $sql$select public.change_task_status(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'::uuid,
+    'in_progress'::public.task_status,
+    null
+  )::text$sql$,
+  'forbidden transition'
+);
+
+select public._crm_test_must(
+  $sql$select count(*)::text
+  from public.task_status_history
+  where task_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'$sql$,
+  '0'
+);
+
 call public._crm_test_act_as('22222222-2222-4222-8222-222222222222');
 
 select public._crm_test_must(
@@ -325,6 +345,27 @@ select public._crm_test_must(
   )).to_status::text$sql$,
   'in_progress'
 );
+
+-- MUST FAIL: in_progress → review is the assignee's transition, not the manager's.
+call public._crm_test_act_as('11111111-1111-4111-8111-111111111111');
+
+select public._crm_test_expect_fail(
+  $sql$select public.change_task_status(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'::uuid,
+    'review'::public.task_status,
+    null
+  )::text$sql$,
+  'forbidden transition'
+);
+
+select public._crm_test_must(
+  $sql$select count(*)::text
+  from public.task_status_history
+  where task_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'$sql$,
+  '1'
+);
+
+call public._crm_test_act_as('22222222-2222-4222-8222-222222222222');
 
 -- MUST FAIL: запрещённый переход. Executor cannot jump to accepted.
 select public._crm_test_expect_fail(
@@ -412,6 +453,23 @@ begin
   end if;
 end
 $$;
+
+-- MUST FAIL: rework → in_progress is the assignee's transition, not the manager's.
+select public._crm_test_expect_fail(
+  $sql$select public.change_task_status(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'::uuid,
+    'in_progress'::public.task_status,
+    null
+  )::text$sql$,
+  'forbidden transition'
+);
+
+select public._crm_test_must(
+  $sql$select count(*)::text
+  from public.task_status_history
+  where task_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'$sql$,
+  '3'
+);
 
 call public._crm_test_act_as('22222222-2222-4222-8222-222222222222');
 
@@ -678,16 +736,23 @@ update public.profiles
 set role = 'executor'
 where id = '22222222-2222-4222-8222-222222222222';
 
--- Deleting a task cascades to its history. Direct history deletes stay forbidden.
+-- A task with history cannot be deleted. The history rows stay.
 call public._crm_test_act_as('11111111-1111-4111-8111-111111111111');
 
-select public._crm_test_must(
+select public._crm_test_expect_fail(
   $sql$with changed as (
     delete from public.tasks
     where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4'
     returning 1
   )
   select count(*)::text from changed$sql$,
+  'task_status_history_task_id_fkey'
+);
+
+select public._crm_test_must(
+  $sql$select count(*)::text
+  from public.tasks
+  where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4'$sql$,
   '1'
 );
 
@@ -695,7 +760,197 @@ select public._crm_test_must(
   $sql$select count(*)::text
   from public.task_status_history
   where task_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4'$sql$,
-  '0'
+  '3'
+);
+
+-- An object that still has tasks cannot be deleted.
+select public._crm_test_expect_fail(
+  $sql$with changed as (
+    delete from public.objects
+    where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'
+    returning 1
+  )
+  select count(*)::text from changed$sql$,
+  'tasks_object_id_fkey'
+);
+
+select public._crm_test_must(
+  $sql$select count(*)::text
+  from public.objects
+  where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'$sql$,
+  '1'
+);
+
+-- A task with no history can be deleted. 200 characters is the inclusive limit.
+select public._crm_test_must(
+  $sql$with changed as (
+    insert into public.tasks (id, object_id, title)
+    values (
+      'cccccccc-cccc-4ccc-8ccc-ccccccccccc5',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+      repeat('я', 200)
+    )
+    returning char_length(title)::text as len
+  )
+  select len from changed$sql$,
+  '200'
+);
+
+select public._crm_test_must(
+  $sql$with changed as (
+    delete from public.tasks
+    where id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc5'
+    returning 1
+  )
+  select count(*)::text from changed$sql$,
+  '1'
+);
+
+-- MUST FAIL: tasks.title and objects.name longer than 200 characters.
+select public._crm_test_expect_fail(
+  $sql$with changed as (
+    insert into public.tasks (object_id, title)
+    values (
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+      repeat('я', 201)
+    )
+    returning 1
+  )
+  select count(*)::text from changed$sql$,
+  'tasks_title_length'
+);
+
+select public._crm_test_expect_fail(
+  $sql$with changed as (
+    update public.tasks
+    set title = repeat('я', 201)
+    where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'
+    returning 1
+  )
+  select count(*)::text from changed$sql$,
+  'tasks_title_length'
+);
+
+select public._crm_test_must(
+  $sql$select title from public.tasks where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'$sql$,
+  'Задача А'
+);
+
+select public._crm_test_expect_fail(
+  $sql$with changed as (
+    insert into public.objects (name, address)
+    values (repeat('я', 201), 'ул. Длинная, 201')
+    returning 1
+  )
+  select count(*)::text from changed$sql$,
+  'objects_name_length'
+);
+
+select public._crm_test_expect_fail(
+  $sql$with changed as (
+    update public.objects
+    set name = repeat('я', 201)
+    where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+    returning 1
+  )
+  select count(*)::text from changed$sql$,
+  'objects_name_length'
+);
+
+select public._crm_test_must(
+  $sql$select name from public.objects where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'$sql$,
+  'Объект А'
+);
+
+-- 200 characters is accepted, and an object with no tasks can be deleted.
+select public._crm_test_must(
+  $sql$with changed as (
+    insert into public.objects (id, name, address)
+    values (
+      'dddddddd-dddd-4ddd-8ddd-ddddddddddd6',
+      repeat('я', 200),
+      'ул. Ровно, 200'
+    )
+    returning char_length(name)::text as len
+  )
+  select len from changed$sql$,
+  '200'
+);
+
+select public._crm_test_must(
+  $sql$with changed as (
+    delete from public.objects
+    where id = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd6'
+    returning 1
+  )
+  select count(*)::text from changed$sql$,
+  '1'
+);
+
+-- The role graph itself, not only the RPC wrapper.
+call public._crm_test_act_as_owner();
+
+select public._crm_test_must(
+  $sql$select app_private.task_transition_allowed(
+    'new'::public.task_status,
+    'in_progress'::public.task_status,
+    'manager'::public.user_role
+  )::text$sql$,
+  'false'
+);
+
+select public._crm_test_must(
+  $sql$select app_private.task_transition_allowed(
+    'in_progress'::public.task_status,
+    'review'::public.task_status,
+    'manager'::public.user_role
+  )::text$sql$,
+  'false'
+);
+
+select public._crm_test_must(
+  $sql$select app_private.task_transition_allowed(
+    'rework'::public.task_status,
+    'in_progress'::public.task_status,
+    'manager'::public.user_role
+  )::text$sql$,
+  'false'
+);
+
+select public._crm_test_must(
+  $sql$select app_private.task_transition_allowed(
+    'review'::public.task_status,
+    'accepted'::public.task_status,
+    'manager'::public.user_role
+  )::text$sql$,
+  'true'
+);
+
+select public._crm_test_must(
+  $sql$select app_private.task_transition_allowed(
+    'review'::public.task_status,
+    'rework'::public.task_status,
+    'manager'::public.user_role
+  )::text$sql$,
+  'true'
+);
+
+select public._crm_test_must(
+  $sql$select app_private.task_transition_allowed(
+    'new'::public.task_status,
+    'in_progress'::public.task_status,
+    'executor'::public.user_role
+  )::text$sql$,
+  'true'
+);
+
+select public._crm_test_must(
+  $sql$select app_private.task_transition_allowed(
+    'review'::public.task_status,
+    'accepted'::public.task_status,
+    'executor'::public.user_role
+  )::text$sql$,
+  'false'
 );
 
 rollback;
